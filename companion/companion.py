@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Discord Rich Presence companion, runs on .12 (Windows) via pythonw.exe.
+"""Discord Rich Presence companion, runs on the machine with the Discord client.
 
 Connects to the local Discord client over IPC and keeps presence alive while
-Discord is open, reconnecting when the client restarts. Env: JONI_CLIENT_ID,
-JONI_BRIDGE_URL, JONI_POLL, JONI_TIMEOUT, JONI_DISCORD_PROC, JONI_CLEAR_AFTER,
+Discord is open, reconnecting when the client restarts.
+Required env: JONI_CLIENT_ID, JONI_BRIDGE_URL.
+Optional: JONI_POLL, JONI_TIMEOUT, JONI_DISCORD_PROC, JONI_CLEAR_AFTER,
 JONI_LOG, JONI_DRY_RUN.
 """
 import os
@@ -23,21 +24,62 @@ except ImportError:
 
 import requests
 
-CLIENT_ID = os.environ.get("JONI_CLIENT_ID", "1530105931482791956")
-BRIDGE_URL = os.environ.get("JONI_BRIDGE_URL", "http://100.82.26.92:1919/")
-POLL = int(os.environ.get("JONI_POLL", "10"))
-TIMEOUT = int(os.environ.get("JONI_TIMEOUT", "4"))
-DISCORD_PROCS = [
-    name.strip() for name in os.environ.get(
-        "JONI_DISCORD_PROC", "Discord,discord").split(",") if name.strip()
-]
-CLEAR_AFTER = int(os.environ.get("JONI_CLEAR_AFTER", "3"))
-DRY_RUN = os.environ.get("JONI_DRY_RUN", "0") == "1"
-DEFAULT_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "companion.log")
-LOG_PATH = os.environ.get("JONI_LOG", DEFAULT_LOG)
+ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+REQUIRED = ["JONI_CLIENT_ID", "JONI_BRIDGE_URL"]
+
+CLIENT_ID = None
+BRIDGE_URL = None
+POLL = 10
+TIMEOUT = 4
+DISCORD_PROCS = []
+CLEAR_AFTER = 3
+DRY_RUN = False
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "companion.log")
 
 log_file = None
+
+
+def load_env_file(path):
+    # Fills os.environ from .env without overriding exported values. Blank
+    # values count as unset, so a stub .env.example copy is harmless.
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip().strip("'\"")
+        if value:
+            os.environ.setdefault(key.strip(), value)
+
+
+def env(name, default=None):
+    return os.environ.get(name) or default
+
+
+def require(names):
+    missing = [name for name in names if not env(name)]
+    if missing:
+        print(f"[config] missing required env: {', '.join(missing)}")
+        raise SystemExit(1)
+
+
+def load_config():
+    global CLIENT_ID, BRIDGE_URL, POLL, TIMEOUT, DISCORD_PROCS, CLEAR_AFTER, DRY_RUN, LOG_PATH
+    CLIENT_ID = env("JONI_CLIENT_ID")
+    BRIDGE_URL = env("JONI_BRIDGE_URL")
+    POLL = int(env("JONI_POLL", "10"))
+    TIMEOUT = int(env("JONI_TIMEOUT", "4"))
+    DISCORD_PROCS = [
+        name.strip() for name in env("JONI_DISCORD_PROC", "Discord,discord").split(",") if name.strip()
+    ]
+    CLEAR_AFTER = int(env("JONI_CLEAR_AFTER", "3"))
+    DRY_RUN = env("JONI_DRY_RUN", "0") == "1"
+    LOG_PATH = env("JONI_LOG", LOG_PATH)
 
 
 def log(message):
@@ -45,11 +87,7 @@ def log(message):
     global log_file
     if log_file is None:
         try:
-            log_file = open(LOG_PATH,
-                            "a",
-                            buffering=1,
-                            encoding="utf-8",
-                            errors="replace")
+            log_file = open(LOG_PATH, "a", buffering=1, encoding="utf-8", errors="replace")
         except Exception:
             log_file = False
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}"
@@ -80,14 +118,9 @@ def discord_running():
 
 def backend_online():
     try:
-        # The bridge lives on a private Tailscale IP: .12 runs a system proxy
-        # (Camofox) that would break the request, so force no proxy.
-        response = requests.get(BRIDGE_URL,
-                                timeout=TIMEOUT,
-                                proxies={
-                                    "http": None,
-                                    "https": None
-                                })
+        # The bridge is reached directly over the private network: a system proxy
+        # on this machine would break the request, so force no proxy.
+        response = requests.get(BRIDGE_URL, timeout=TIMEOUT, proxies={"http": None, "https": None})
         return bool(response.json().get("backend_online"))
     except Exception:
         return False
@@ -100,8 +133,10 @@ def connect_rpc():
 
 
 def main():
-    log(f"[joni] companion start client={CLIENT_ID} bridge={BRIDGE_URL} dry={DRY_RUN}"
-        )
+    load_env_file(ENV_FILE)
+    require(REQUIRED)
+    load_config()
+    log(f"[joni] companion start client={CLIENT_ID} bridge={BRIDGE_URL} dry={DRY_RUN}")
     rpc = None
     offline_streak = 0
     try:
@@ -109,8 +144,7 @@ def main():
             active = backend_online()
 
             if DRY_RUN:
-                log(f"[dry] discord={discord_running()} backend={active} -> presence='joni' (no details)"
-                    )
+                log(f"[dry] discord={discord_running()} backend={active} -> presence='joni' (no details)")
                 time.sleep(POLL)
                 continue
 
@@ -137,8 +171,7 @@ def main():
 
             if active:
                 if offline_streak:
-                    log(f"[joni] backend online again after {offline_streak} offline poll(s)"
-                        )
+                    log(f"[joni] backend online again after {offline_streak} offline poll(s)")
                 offline_streak = 0
                 try:
                     # Assets only: Discord then shows the application name alone.
@@ -155,11 +188,9 @@ def main():
                 # CLEAR_AFTER consecutive offline polls.
                 offline_streak += 1
                 if offline_streak == 1:
-                    log(f"[joni] backend offline; keeping presence ({offline_streak}/{CLEAR_AFTER})"
-                        )
+                    log(f"[joni] backend offline; keeping presence ({offline_streak}/{CLEAR_AFTER})")
                 if offline_streak >= CLEAR_AFTER:
-                    log(f"[joni] backend offline x{offline_streak}; clearing presence"
-                        )
+                    log(f"[joni] backend offline x{offline_streak}; clearing presence")
                     try:
                         rpc.clear()
                     except Exception:

@@ -1,14 +1,14 @@
 [Unit]
-Description=Joni Hermes status bridge (Tailscale/localhost health for Discord presence)
+Description=Joni status bridge (health endpoint for Discord presence)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-WorkingDirectory=/media/bazyngan/DATA/Documents/Projects/joni/bridge
-Environment=JONI_BRIDGE_HOST=127.0.0.1,100.82.26.92
-Environment=JONI_BRIDGE_PORT=1919
+# Replace /path/to/discord-presence-joni with the real checkout path.
+WorkingDirectory=/path/to/discord-presence-joni/bridge
+EnvironmentFile=-/etc/joni/bridge.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /media/bazyngan/DATA/Documents/Projects/joni/bridge/bridge.py
+ExecStart=/usr/bin/python3 /path/to/discord-presence-joni/bridge/bridge.py
 Restart=on-failure
 RestartSec=5
 

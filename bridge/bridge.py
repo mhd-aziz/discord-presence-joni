@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Health bridge that re-exposes Hermes localhost health over Tailscale.
 
-Hermes on .19 binds 127.0.0.1 only, so the companion on .12 cannot probe it.
-Consumers: companion via http://100.82.26.92:1919/, bot via localhost.
-Env: JONI_BRIDGE_HOST (comma separated), JONI_BRIDGE_PORT, JONI_BRIDGE_TIMEOUT.
+Hermes binds 127.0.0.1 only, so a companion on another machine cannot probe it.
+Required env: JONI_BRIDGE_HOST (comma separated), JONI_BRIDGE_PORT.
+Optional: JONI_BRIDGE_TIMEOUT.
 """
 import json
 import os
@@ -13,22 +13,52 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-BIND_PORT = int(os.environ.get("JONI_BRIDGE_PORT", "1919"))
-BIND_HOSTS = [
-    host.strip()
-    for host in os.environ.get("JONI_BRIDGE_HOST", "127.0.0.1,100.82.26.92").split(",")
-    if host.strip()
-]
-CHECK_TIMEOUT = float(os.environ.get("JONI_BRIDGE_TIMEOUT", "3"))
+ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+REQUIRED = ["JONI_BRIDGE_HOST", "JONI_BRIDGE_PORT"]
 CHECKS = [("hermes_api", "http://127.0.0.1:9119/api/health")]
+
+BIND_PORT = None
+BIND_HOSTS = []
+CHECK_TIMEOUT = None
 
 BOUND = set()
 BOUND_LOCK = threading.Lock()
 
 
-def probe(url, timeout=CHECK_TIMEOUT):
+def load_env_file(path):
+    # Fills os.environ from .env without overriding exported values, so systemd
+    # EnvironmentFile wins. Blank values count as unset.
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, method="GET"), timeout=timeout) as response:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip().strip("'\"")
+        if value:
+            os.environ.setdefault(key.strip(), value)
+
+
+def env(name, default=None):
+    return os.environ.get(name) or default
+
+
+def require(names):
+    missing = [name for name in names if not env(name)]
+    if missing:
+        print(f"[config] missing required env: {', '.join(missing)}")
+        raise SystemExit(1)
+
+
+def probe(url, timeout=None):
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(url, method="GET"), timeout=timeout or CHECK_TIMEOUT
+        ) as response:
             return {"ok": True, "status": response.status}
     except urllib.error.HTTPError as e:
         return {"ok": e.code < 500, "status": e.code}
@@ -88,9 +118,14 @@ def serve(host):
 
 
 if __name__ == "__main__":
+    load_env_file(ENV_FILE)
+    require(REQUIRED)
+    BIND_PORT = int(env("JONI_BRIDGE_PORT"))
+    BIND_HOSTS = [host.strip() for host in env("JONI_BRIDGE_HOST").split(",") if host.strip()]
+    CHECK_TIMEOUT = float(env("JONI_BRIDGE_TIMEOUT", "3"))
     threads = []
     # Start every bind thread first: joining inside this loop blocks on the
-    # first host (127.0.0.1) and never starts the Tailscale listener.
+    # first host and never starts the remaining listeners.
     for host in BIND_HOSTS:
         thread = threading.Thread(target=serve, args=(host,), daemon=True)
         thread.start()

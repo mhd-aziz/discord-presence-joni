@@ -28,9 +28,21 @@ jobs:
           python-version: "3.14"
       - name: Install component dependencies
         run: pip install -r bot/requirements.txt -r companion/requirements.txt
-      - name: Bridge serves health JSON
+      - name: Every script fails fast without its required variables
         run: |
-          JONI_BRIDGE_HOST=127.0.0.1 JONI_BRIDGE_PORT=19191 timeout 25 python bridge/bridge.py &
+          for script in bridge/bridge.py bot/bot.py companion/companion.py; do
+            if output=$(python "$script" 2>&1); then
+              echo "expected $script to exit non-zero"; exit 1
+            fi
+            echo "$output" | grep -q '\[config\] missing required env'
+            echo "$script: fails fast as expected"
+          done
+      - name: Bridge serves health JSON
+        env:
+          JONI_BRIDGE_HOST: 127.0.0.1
+          JONI_BRIDGE_PORT: "19191"
+        run: |
+          timeout 25 python bridge/bridge.py &
           for _ in $(seq 1 30); do
             curl -sf http://127.0.0.1:19191/ -o /tmp/bridge.json && break
             sleep 0.5
@@ -46,11 +58,17 @@ jobs:
           print("bridge ok:", data)
           EOF
       - name: Companion runs in dry-run
+        env:
+          JONI_CLIENT_ID: "000000000000000000"
+          JONI_BRIDGE_URL: http://127.0.0.1:19191/
+          JONI_DRY_RUN: "1"
+          JONI_POLL: "1"
+          JONI_LOG: /tmp/companion.log
         run: |
-          JONI_DRY_RUN=1 JONI_POLL=1 JONI_LOG=/tmp/companion.log timeout 8 python companion/companion.py > /tmp/dry.log || true
+          timeout 8 python companion/companion.py > /tmp/dry.log || true
           grep -q '\[dry\]' /tmp/dry.log
           cat /tmp/dry.log
-      - name: Bot imports without a token
+      - name: Bot module loads without configuration
         run: |
           python - <<'EOF'
           import importlib.util
@@ -58,7 +76,7 @@ jobs:
           spec = importlib.util.spec_from_file_location("bot", "bot/bot.py")
           module = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(module)
-          assert module.TOKEN is None
+          assert module.env("JONI_BOT_TOKEN") is None
           assert module.backend_online() is False
           print("bot module ok")
           EOF

@@ -1,14 +1,15 @@
 [Unit]
-Description=Joni Hermes status Discord bot
+Description=Joni status Discord bot
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-WorkingDirectory=/media/bazyngan/DATA/Documents/Projects/joni/bot
+# Replace /path/to/discord-presence-joni with the real checkout path.
+WorkingDirectory=/path/to/discord-presence-joni/bot
 EnvironmentFile=/etc/joni/secrets.env
-Environment=JONI_BRIDGE_URL=http://127.0.0.1:1919/
+EnvironmentFile=-/etc/joni/bot.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/media/bazyngan/DATA/Documents/Projects/joni/bot/venv/bin/python /media/bazyngan/DATA/Documents/Projects/joni/bot/bot.py
+ExecStart=/path/to/discord-presence-joni/bot/venv/bin/python /path/to/discord-presence-joni/bot/bot.py
 Restart=on-failure
 RestartSec=10
 
