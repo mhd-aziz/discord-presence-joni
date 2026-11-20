@@ -28,13 +28,13 @@ BRIDGE_URL = os.environ.get("JONI_BRIDGE_URL", "http://100.82.26.92:1919/")
 POLL = int(os.environ.get("JONI_POLL", "10"))
 TIMEOUT = int(os.environ.get("JONI_TIMEOUT", "4"))
 DISCORD_PROCS = [
-    name.strip()
-    for name in os.environ.get("JONI_DISCORD_PROC", "Discord,discord").split(",")
-    if name.strip()
+    name.strip() for name in os.environ.get(
+        "JONI_DISCORD_PROC", "Discord,discord").split(",") if name.strip()
 ]
 CLEAR_AFTER = int(os.environ.get("JONI_CLEAR_AFTER", "3"))
 DRY_RUN = os.environ.get("JONI_DRY_RUN", "0") == "1"
-DEFAULT_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "companion.log")
+DEFAULT_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "companion.log")
 LOG_PATH = os.environ.get("JONI_LOG", DEFAULT_LOG)
 
 log_file = None
@@ -45,7 +45,11 @@ def log(message):
     global log_file
     if log_file is None:
         try:
-            log_file = open(LOG_PATH, "a", buffering=1, encoding="utf-8", errors="replace")
+            log_file = open(LOG_PATH,
+                            "a",
+                            buffering=1,
+                            encoding="utf-8",
+                            errors="replace")
         except Exception:
             log_file = False
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}"
@@ -78,7 +82,12 @@ def backend_online():
     try:
         # The bridge lives on a private Tailscale IP: .12 runs a system proxy
         # (Camofox) that would break the request, so force no proxy.
-        response = requests.get(BRIDGE_URL, timeout=TIMEOUT, proxies={"http": None, "https": None})
+        response = requests.get(BRIDGE_URL,
+                                timeout=TIMEOUT,
+                                proxies={
+                                    "http": None,
+                                    "https": None
+                                })
         return bool(response.json().get("backend_online"))
     except Exception:
         return False
@@ -91,7 +100,8 @@ def connect_rpc():
 
 
 def main():
-    log(f"[joni] companion start client={CLIENT_ID} bridge={BRIDGE_URL} dry={DRY_RUN}")
+    log(f"[joni] companion start client={CLIENT_ID} bridge={BRIDGE_URL} dry={DRY_RUN}"
+        )
     rpc = None
     offline_streak = 0
     try:
@@ -99,7 +109,8 @@ def main():
             active = backend_online()
 
             if DRY_RUN:
-                log(f"[dry] discord={discord_running()} backend={active} -> presence='joni' (no details)")
+                log(f"[dry] discord={discord_running()} backend={active} -> presence='joni' (no details)"
+                    )
                 time.sleep(POLL)
                 continue
 
@@ -126,7 +137,8 @@ def main():
 
             if active:
                 if offline_streak:
-                    log(f"[joni] backend online again after {offline_streak} offline poll(s)")
+                    log(f"[joni] backend online again after {offline_streak} offline poll(s)"
+                        )
                 offline_streak = 0
                 try:
                     # Assets only: Discord then shows the application name alone.
@@ -143,9 +155,11 @@ def main():
                 # CLEAR_AFTER consecutive offline polls.
                 offline_streak += 1
                 if offline_streak == 1:
-                    log(f"[joni] backend offline; keeping presence ({offline_streak}/{CLEAR_AFTER})")
+                    log(f"[joni] backend offline; keeping presence ({offline_streak}/{CLEAR_AFTER})"
+                        )
                 if offline_streak >= CLEAR_AFTER:
-                    log(f"[joni] backend offline x{offline_streak}; clearing presence")
+                    log(f"[joni] backend offline x{offline_streak}; clearing presence"
+                        )
                     try:
                         rpc.clear()
                     except Exception:

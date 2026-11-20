@@ -45,11 +45,9 @@ async def poll_loop():
     print(f"[bot] ready, posting to #{channel.name}")
     while not client.is_closed():
         online = backend_online()
-        text = (
-            "**assistant**\n"
-            f"Status: {'🟢 ONLINE' if online else '🔴 OFFLINE'}\n"
-            f"Last check: {time.strftime('%H:%M:%S %d/%m')}"
-        )
+        text = ("**assistant**\n"
+                f"Status: {'🟢 ONLINE' if online else '🔴 OFFLINE'}\n"
+                f"Last check: {time.strftime('%H:%M:%S %d/%m')}")
         try:
             if message:
                 await message.edit(content=text)
@@ -89,7 +87,9 @@ def main():
         except KeyboardInterrupt:
             return
         except Exception as e:
-            print(f"[bot] run failed ({type(e).__name__}: {str(e)[:160]}); retry in {int(delay)}s")
+            print(
+                f"[bot] run failed ({type(e).__name__}: {str(e)[:160]}); retry in {int(delay)}s"
+            )
             time.sleep(delay)
             delay = min(delay * 2, RETRY_MAX)
 
