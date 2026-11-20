@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check --line-length 110 --select E,F,W,I bridge bot companion
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install component dependencies
+        run: pip install -r bot/requirements.txt -r companion/requirements.txt
+      - name: Bridge serves health JSON
+        run: |
+          JONI_BRIDGE_HOST=127.0.0.1 JONI_BRIDGE_PORT=19191 timeout 25 python bridge/bridge.py &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:19191/ -o /tmp/bridge.json && break
+            sleep 0.5
+          done
+          python - <<'EOF'
+          import json
+
+          data = json.load(open("/tmp/bridge.json"))
+          assert data["ok"] is True, data
+          assert data["listening_on"] == ["127.0.0.1"], data
+          assert "hermes_api" in data["checks"], data
+          assert isinstance(data["backend_online"], bool), data
+          print("bridge ok:", data)
+          EOF
+      - name: Companion runs in dry-run
+        run: |
+          JONI_DRY_RUN=1 JONI_POLL=1 JONI_LOG=/tmp/companion.log timeout 8 python companion/companion.py > /tmp/dry.log || true
+          grep -q '\[dry\]' /tmp/dry.log
+          cat /tmp/dry.log
+      - name: Bot imports without a token
+        run: |
+          python - <<'EOF'
+          import importlib.util
+
+          spec = importlib.util.spec_from_file_location("bot", "bot/bot.py")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          assert module.TOKEN is None
+          assert module.backend_online() is False
+          print("bot module ok")
+          EOF
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      - run: pip-audit -r bot/requirements.txt -r companion/requirements.txt

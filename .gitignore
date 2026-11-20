@@ -1,0 +1,19 @@
+# secrets: never commit
+*.env
+.env
+.env.*
+bot/bot.env
+companion/config.env
+
+# python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# runtime artifacts
+*.log
+.ruff_cache/
+
+# systemd
+/etc/joni/secrets.env
